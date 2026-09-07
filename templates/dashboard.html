@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>sshwatch</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>    
+<body>
+    <h1>sshwatch</h1>
+    <p>Upload an SSH auth log to analyze it.</p>
+
+    <input type="file" id="fileInput" accept=".log,.txt">
+    <button id="analyzeBtn">Analyze</button>
+
+    <div id="results"></div>
+    <canvas id="failedByIpChart" width="600" height="300"></canvas>
+
+<script>
+    let currentChart = null;
+    document.getElementById('analyzeBtn').addEventListener('click', async () => {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert('Please choose a file first.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('logfile', file);
+
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+        const resultsDiv = document.getElementById("results");
+
+        const rows = Object.entries(data.failed_by_ip)
+            .map(([ip, count]) => `<tr><td>${ip}</td><td>${count}</td></tr>`)
+            .join('');
+
+        const compromiseRows = data.compromises
+            .map(c => `<tr><td>${c.ip}</td><td>${c.user}</td><td>${c.failure_count}</td></tr>`)
+            .join('');
+
+        const bruteForceRows = Object.entries(data.brute_force)
+            .map(([ip, info]) => `<tr><td>${ip}</td><td>${info.count}</td><td>${info.mitre_technique} - ${info.mitre_name}</td></tr>`)
+            .join('');
+
+        const lowAndSlowRows = Object.entries(data.low_and_slow)
+            .map(([ip, info]) => `<tr><td>${ip}</td><td>${info.count}</td><td>${info.mitre_technique} - ${info.mitre_name}</td></tr>`)
+            .join('');
+        
+        resultsDiv.innerHTML = `
+        <h2>Results</h2>
+        <p>Total events: ${data.total_events}</p>
+        <p>Brute-force IPs: ${Object.keys(data.brute_force).length}</p>
+        <p>Compromise alerts: ${data.compromises.length}</p>
+
+        <h3>Failed attempts by IP</h3>
+        <table>
+            <tr>
+                <th>IP</th>
+                <th>Failed attempts</th>
+            </tr>
+            ${rows}
+        </table>
+
+        <h3>Brute-Force Findings</h3>
+        <table>
+            <tr>
+                <th>IP</th>
+                <th>Attempt count</th>
+                <th>MITRE Technique</th>
+            </tr>
+            ${bruteForceRows}
+        </table>
+
+        <h3>Low-and-Slow Findings</h3>
+        <table>
+            <tr>
+                <th>IP</th>
+                <th>Attempt count</th>
+                <th>MITRE Technique</th>
+            </tr>
+            ${lowAndSlowRows}
+        </table>
+
+        <h3>Compromise Alerts</h3>
+        <table>
+            <tr>
+                <th>IP</th>
+                <th>Username</th>
+                <th>Failed attempts before success</th>
+            </tr>
+            ${compromiseRows}
+        </table>
+        `;
+
+const ips = Object.keys(data.failed_by_ip);
+const counts = Object.values(data.failed_by_ip);
+
+if (currentChart) {
+    currentChart.destroy();
+}
+
+currentChart = new Chart(document.getElementById('failedByIpChart'), {
+    type: 'bar',
+    data: {
+        labels: ips,
+        datasets: [{
+            label: 'Failed login attempts',
+            data: counts,
+            backgroundColor: '#c0392b'
+        }]
+    },
+    options: {
+        scales: {
+            y: { beginAtZero: true }
+        }
+    }
+});
+})
+</script>
+</body>
+</html>
